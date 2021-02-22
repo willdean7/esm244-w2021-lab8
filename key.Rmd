@@ -1,0 +1,264 @@
+---
+title: 'ESM 244 Lab Week 8: Clustering (k-means & hierarchical)'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(janitor)
+library(palmerpenguins)
+library(plotly)
+
+# Packages for cluster analysis:
+library(NbClust)
+library(cluster)
+library(factoextra)
+library(dendextend)
+library(ggdendro)
+```
+
+## Intro to cluster analysis (k-means, hierarchical)
+
+### Part 1. K-means clustering: 
+
+Penguin clusters 
+
+```{r}
+
+ggplot(penguins) +
+  geom_point(aes(x = bill_length_mm, 
+                 y = bill_depth_mm, 
+                 color = species,
+                 shape = sex),
+             size = 3,
+             alpha = 0.7) +
+  scale_color_manual(values = c("orange","cyan4","darkmagenta"))
+
+ggplot(penguins) +
+  geom_point(aes(x = flipper_length_mm, 
+                 y = body_mass_g, 
+                 color = species,
+                 shape = sex),
+             size = 3,
+             alpha = 0.7) +
+  scale_color_manual(values = c("orange","cyan4","darkmagenta"))
+
+# How many clusters do you THINK there should be? 
+number_est <- NbClust(penguins[3:6], min.nc = 2, max.nc = 10, method = "kmeans")
+
+# By these estimators, 2 is the best number of clusters...but should that change our mind? Maybe...but here I think it makes sense to still stick with 3 and see how it does. 
+
+# What if we consider similarities across all four variables? 
+penguins_complete <- penguins %>% 
+  drop_na(bill_length_mm, bill_depth_mm, body_mass_g, flipper_length_mm)
+
+penguins_scale <- penguins_complete %>% 
+  select(ends_with("mm"), body_mass_g) %>% 
+  scale()
+
+penguins_km <- kmeans(penguins_scale, 3) # kmeans specifying 2 groups to start
+
+# See what it returns (different elements returned by kmeans function):
+penguins_km$size
+penguins_km$centers
+penguins_km$cluster
+
+# Bind the cluster number to the original data
+
+penguins_cl <- data.frame(penguins_complete, cluster_no = factor(penguins_km$cluster))
+
+ggplot(penguins_cl) +
+  geom_point(aes(x = flipper_length_mm, 
+                 y = body_mass_g, 
+                 color = cluster_no,
+                 shape = species))
+```
+
+Then get counts:
+```{r}
+penguins_cl %>% 
+  count(species, cluster_no) %>% 
+  pivot_wider(names_from = cluster_no, values_from = n) %>% 
+  rename('Cluster 1' = '1', 'Cluster 2' = '2', 'Cluster 3' = '3')
+
+```
+
+Takeaway: *most* chinstraps in Cluster 1, and *most* Adelies in Cluster 2, and *all* Gentoos are in Cluster 3 by k-means clustering. 
+
+### Part 2. Cluster analysis: hierarchical
+
+Hierarchical cluster analysis (dendrograms) in R
+
+Relevant functions:
+
+stats::hclust() - agglomerative hierarchical clustering
+cluster::diana() - divisive hierarchical clustering
+
+We'll be using WorldBank environmental data (simplified), wb_env.csv
+```{r}
+
+# Get the data
+wb_env <- read_csv("wb_env.csv")
+
+# Only keep top 20 greenhouse gas emitters (for simplifying visualization here...)
+wb_ghg_20 <- wb_env %>% 
+  arrange(-ghg) %>% 
+  head(20)
+
+# Scale it (can consider this for k-means clustering, too...)
+wb_scaled <- as.data.frame(scale(wb_ghg_20[3:7]))
+
+# Update to add rownames (country name)
+rownames(wb_scaled) <- wb_ghg_20$name
+
+# Compute dissimilarity values (Euclidean distances):
+diss <- dist(wb_scaled, method = "euclidean")
+
+# Hierarchical clustering (complete linkage)
+hc_complete <- hclust(diss, method = "complete" )
+
+# Plot it (base plot):
+plot(hc_complete, cex = 0.6, hang = -1)
+
+```
+
+Divisive clustering:
+```{r}
+hc_div <- diana(diss)
+
+plot(hc_div, hang = -1)
+rect.hclust(hc_div, k = 4, border = 2:5)
+```
+
+We might want to compare those...because they differ slightly.
+```{r}
+
+# Convert to class dendrogram
+dend1 <- as.dendrogram(hc_complete)
+dend2 <- as.dendrogram(hc_div)
+
+# Combine into list
+dend_list <- dendlist(dend1,dend2)
+
+# Make a tanglegram
+tanglegram(dend1, dend2)
+
+# Convert to class 'dendro' for ggplotting
+data1 <- dendro_data(hc_complete)
+
+# Simple plot with ggdendrogram
+ggdendrogram(hc_complete, 
+             rotate = TRUE) +
+  theme_minimal() +
+  labs(x = "Country")
+
+# Want to do it actually in ggplot? Here: 
+label_data <- bind_cols(filter(segment(data1), x == xend & x%%1 == 0), label(data1))
+
+ggplot() + 
+geom_segment(data=segment(data1), aes(x=x, y=y, xend=xend, yend=yend)) +
+geom_text(data=label_data, aes(x=xend, y=yend, label=label, hjust=0), size=2) +
+coord_flip() + 
+scale_y_reverse(expand=c(0.2, 0)) +
+theme_bw() +
+theme(panel.border = element_blank(),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      axis.line = element_blank(),
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "None") 
+
+```
+
+
+####Part 2. Cluster analysis: hierarchical
+
+Hierarchical cluster analysis (dendrograms) in R
+
+Relevant functions:
+
+stats::hclust() - agglomerative hierarchical clustering
+cluster::diana() - divisive hierarchical clustering
+
+We'll be using WorldBank environmental data (simplified), wb_env.csv
+```{r}
+
+# Get the data
+wb_env <- read_csv("wb_env.csv")
+
+# Only keep top 20 greenhouse gas emitters (for simplifying visualization here...)
+wb_ghg_20 <- wb_env %>% 
+  arrange(-ghg) %>% 
+  head(20)
+
+# Scale it (can consider this for k-means clustering, too...)
+wb_scaled <- as.data.frame(scale(wb_ghg_20[3:7]))
+
+# Update to add rownames (country name)
+rownames(wb_scaled) <- wb_ghg_20$name
+
+# Compute dissimilarity values (Euclidean distances):
+diss <- dist(wb_scaled, method = "euclidean")
+
+# Hierarchical clustering (complete linkage)
+hc_complete <- hclust(diss, method = "complete" )
+
+# Plot it (base plot):
+plot(hc_complete, cex = 0.6, hang = -1)
+
+```
+
+Divisive clustering:
+```{r}
+hc_div <- diana(diss)
+
+plot(hc_div)
+```
+
+We might want to compare those...because they differ slightly.
+```{r}
+
+# Convert to class dendrogram
+dend1 <- as.dendrogram(hc_complete)
+dend2 <- as.dendrogram(hc_div)
+
+# Combine into list
+dend_list <- dendlist(dend1,dend2)
+
+# Make a tanglegram
+tanglegram(dend1, dend2)
+
+# Convert to class 'dendro' for ggplotting
+data1 <- dendro_data(hc_complete)
+
+# Simple plot with ggdendrogram
+ggdendrogram(hc_complete, 
+             rotate = TRUE) +
+  theme_minimal() +
+  labs(x = "Country")
+
+# Want to do it actually in ggplot? Here: 
+label_data <- bind_cols(filter(segment(data1), x == xend & x%%1 == 0), label(data1))
+
+ggplot() + 
+geom_segment(data=segment(data1), aes(x=x, y=y, xend=xend, yend=yend)) +
+geom_text(data=label_data, aes(x=xend, y=yend, label=label, hjust=0), size=2) +
+coord_flip() + 
+scale_y_reverse(expand=c(0.2, 0)) +
+theme_bw() +
+theme(panel.border = element_blank(),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      axis.line = element_blank(),
+      axis.title = element_blank(),
+      axis.text = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "None") 
+
+```
+
+
